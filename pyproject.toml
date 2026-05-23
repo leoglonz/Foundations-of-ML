@@ -1,0 +1,14 @@
+[project]
+name = "foundations-of-ml"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.9",
+    "pyarrow>=24.0.0",
+    "scikit-learn>=1.8.0",
+    "scipy>=1.17.1",
+    "torch>=2.12.0",
+    "tqdm>=4.67.3",
+]

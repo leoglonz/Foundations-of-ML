@@ -14,6 +14,8 @@ nse_score               Nash-Sutcliffe Efficiency (numpy, NaN-safe)
 masked_mse_loss         MSE loss that skips NaN positions in the target
 train_model             Full training loop with scheduler + best-weight restore
 train_model_with_attrs  Same, but for models that take (x_dynamic, x_static)
+load_or_train           Train or load pre-saved weights based on workshop flags
+load_or_train_with_attrs  Same, for models that take (x_dynamic, x_static)
 predict_full_timeseries Sliding-window inference over a full time series
 predict_ts_with_attrs   Same, for attribute-conditioned models
 StreamflowDataset       Sliding-window PyTorch Dataset (dynamic forcings only)
@@ -229,7 +231,171 @@ def train_model_with_attrs(
 
 
 # ---------------------------------------------------------------------------
-# 6. predict_full_timeseries
+# 6. load_or_train
+# ---------------------------------------------------------------------------
+
+def load_or_train(
+    model,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    n_epochs: int = 30,
+    lr: float = 1e-3,
+    verbose: bool = True,
+    weights_path=None,
+    train_from_scratch: bool = True,
+    save_weights: bool = False,
+):
+    """Train *model* or load pre-saved weights, controlled by workshop flags.
+
+    This wrapper exists so notebook training cells stay clean while still
+    supporting both workshop modes:
+
+      TRAIN_FROM_SCRATCH = True  — normal training run, optionally saves weights
+      TRAIN_FROM_SCRATCH = False — loads weights from *weights_path* instantly,
+                                   skips training entirely
+
+    When loading, dummy loss lists of the correct length are returned so that
+    any downstream plotting calls (e.g. plot_learning_curves) still work.
+
+    Parameters
+    ----------
+    model             : nn.Module to train or load into
+    train_loader      : DataLoader yielding (x, y) batches
+    val_loader        : DataLoader yielding (x, y) batches
+    n_epochs          : number of epochs to train (used for training and for
+                        the length of dummy loss lists when loading)
+    lr                : initial learning rate
+    verbose           : if True, print a summary line every 5 epochs
+    weights_path      : Path-like — where to save / load the .pt checkpoint.
+                        If None, saving and loading are both skipped silently.
+    train_from_scratch: if True, train normally; if False, load from weights_path
+    save_weights      : if True (and train_from_scratch is True), save after training
+
+    Returns
+    -------
+    train_losses, val_losses : lists of per-epoch loss values
+    """
+    from pathlib import Path
+
+    weights_path = Path(weights_path) if weights_path is not None else None
+
+    if not train_from_scratch:
+        if weights_path is not None and weights_path.exists():
+            checkpoint = torch.load(weights_path, map_location=device)
+            model.load_state_dict(checkpoint["model_state"])
+            train_losses = checkpoint.get("train_losses", [0.0] * n_epochs)
+            val_losses   = checkpoint.get("val_losses",   [0.0] * n_epochs)
+            print(f"Loaded weights from {weights_path.name}  "
+                  f"(best val loss: {min(val_losses):.4f})")
+            return train_losses, val_losses
+        else:
+            print(
+                f"Warning: TRAIN_FROM_SCRATCH=False but no weights found at "
+                f"'{weights_path}'. Training from scratch instead."
+            )
+
+    # --- train normally -----------------------------------------------------
+    if verbose:
+        print(f"Training for {n_epochs} epochs ...")
+    train_losses, val_losses = train_model(
+        model, train_loader, val_loader, n_epochs=n_epochs, lr=lr, verbose=verbose
+    )
+
+    if save_weights and weights_path is not None:
+        weights_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "model_state":  model.state_dict(),
+                "train_losses": train_losses,
+                "val_losses":   val_losses,
+            },
+            weights_path,
+        )
+        print(f"Weights saved to {weights_path}")
+
+    return train_losses, val_losses
+
+
+# ---------------------------------------------------------------------------
+# 7. load_or_train_with_attrs
+# ---------------------------------------------------------------------------
+
+def load_or_train_with_attrs(
+    model,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    n_epochs: int = 30,
+    lr: float = 1e-3,
+    verbose: bool = True,
+    weights_path=None,
+    train_from_scratch: bool = True,
+    save_weights: bool = False,
+):
+    """Same as load_or_train, but wraps train_model_with_attrs.
+
+    Use this for models whose forward() takes (x_dynamic, x_static), such as
+    LstmWithAttrs in Notebook 2. DataLoaders must yield (x_dynamic, x_static, y)
+    triples.
+
+    Parameters
+    ----------
+    model             : nn.Module whose forward() takes (x_dyn, x_stat)
+    train_loader      : DataLoader yielding (x_dynamic, x_static, y) triples
+    val_loader        : DataLoader yielding (x_dynamic, x_static, y) triples
+    n_epochs          : number of epochs to train
+    lr                : initial learning rate
+    verbose           : if True, print a summary line every 5 epochs
+    weights_path      : Path-like — where to save / load the .pt checkpoint
+    train_from_scratch: if True, train normally; if False, load from weights_path
+    save_weights      : if True (and train_from_scratch is True), save after training
+
+    Returns
+    -------
+    train_losses, val_losses : lists of per-epoch loss values
+    """
+    from pathlib import Path
+
+    weights_path = Path(weights_path) if weights_path is not None else None
+
+    if not train_from_scratch:
+        if weights_path is not None and weights_path.exists():
+            checkpoint = torch.load(weights_path, map_location=device)
+            model.load_state_dict(checkpoint["model_state"])
+            train_losses = checkpoint.get("train_losses", [0.0] * n_epochs)
+            val_losses   = checkpoint.get("val_losses",   [0.0] * n_epochs)
+            print(f"Loaded weights from {weights_path.name}  "
+                  f"(best val loss: {min(val_losses):.4f})")
+            return train_losses, val_losses
+        else:
+            print(
+                f"Warning: TRAIN_FROM_SCRATCH=False but no weights found at "
+                f"'{weights_path}'. Training from scratch instead."
+            )
+
+    # --- train normally -----------------------------------------------------
+    if verbose:
+        print(f"Training for {n_epochs} epochs ...")
+    train_losses, val_losses = train_model_with_attrs(
+        model, train_loader, val_loader, n_epochs=n_epochs, lr=lr, verbose=verbose
+    )
+
+    if save_weights and weights_path is not None:
+        weights_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "model_state":  model.state_dict(),
+                "train_losses": train_losses,
+                "val_losses":   val_losses,
+            },
+            weights_path,
+        )
+        print(f"Weights saved to {weights_path}")
+
+    return train_losses, val_losses
+
+
+# ---------------------------------------------------------------------------
+# 8. predict_full_timeseries
 # ---------------------------------------------------------------------------
 
 def predict_full_timeseries(
@@ -269,7 +435,7 @@ def predict_full_timeseries(
 
 
 # ---------------------------------------------------------------------------
-# 7. predict_ts_with_attrs
+# 9. predict_ts_with_attrs
 # ---------------------------------------------------------------------------
 
 def predict_ts_with_attrs(
@@ -303,7 +469,7 @@ def predict_ts_with_attrs(
 
 
 # ---------------------------------------------------------------------------
-# 8. StreamflowDataset
+# 10. StreamflowDataset
 # ---------------------------------------------------------------------------
 
 class StreamflowDataset(Dataset):
@@ -356,7 +522,7 @@ class StreamflowDataset(Dataset):
         return torch.from_numpy(x), torch.from_numpy(y)
 
 # ---------------------------------------------------------------------------
-# 9. make_overfit_loader
+# 11. make_overfit_loader
 # ---------------------------------------------------------------------------
 
 def make_overfit_loader(
@@ -424,7 +590,7 @@ def make_overfit_loader(
 
 
 # ---------------------------------------------------------------------------
-# 10. Feature engineering helpers
+# 12. Feature engineering helpers
 # ---------------------------------------------------------------------------
 
 def _find_precipitation_index(forcing_names) -> int:
@@ -567,7 +733,7 @@ def evaluate_streamflow_model(
     return pred_cfs_test, nse_by_basin
 
 # ---------------------------------------------------------------------------
-# 10. StreamflowDatasetWithAttrs
+# 13. StreamflowDatasetWithAttrs
 # ---------------------------------------------------------------------------
 
 class StreamflowDatasetWithAttrs(Dataset):
@@ -598,7 +764,7 @@ class StreamflowDatasetWithAttrs(Dataset):
 
 
 # ---------------------------------------------------------------------------
-# 11. make_attr_dataloaders
+# 14. make_attr_dataloaders
 # ---------------------------------------------------------------------------
 
 def make_attr_dataloaders(

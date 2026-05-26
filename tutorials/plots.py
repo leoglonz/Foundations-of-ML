@@ -9,11 +9,85 @@ boilerplate.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import matplotlib.colors as mcolors
 from scipy import stats
+
+
+def plot_gage_locations(loader, data_dir, nse_by_basin=None, title=None):
+    """Map the CAMELS basin watershed polygons, optionally colored by NSE.
+
+    Parameters
+    ----------
+    loader : CamelsSubsetLoader
+    data_dir : str or Path
+        Root data directory that contains ``loc/camels_subset.shp``.
+    nse_by_basin : dict, optional
+        ``{gage_id: nse_value}`` — when provided, watersheds are filled by NSE
+        on a RdYlGn colormap clipped to [-0.5, 1].
+    title : str, optional
+    """
+    shp_path = Path(data_dir) / "loc" / "camels_subset.shp"
+    gdf = gpd.read_file(shp_path)
+
+    gage_ids = loader.gage_ids
+
+    if nse_by_basin is not None:
+        gdf["nse"] = gdf["hru_id"].map(
+            {int(g): nse_by_basin.get(g, np.nan) for g in gage_ids}
+        )
+        cmap = plt.cm.RdYlGn
+        norm = mcolors.Normalize(vmin=-0.5, vmax=1.0)
+        colors = [cmap(norm(v)) if not np.isnan(v) else "#cccccc" for v in gdf["nse"]]
+    else:
+        colors = ["steelblue"] * len(gdf)
+
+    fig, ax = plt.subplots(figsize=(8, 7))
+
+    gdf.plot(ax=ax, color=colors, edgecolor="k", linewidth=0.6, zorder=2)
+
+    # Scatter centroid markers
+    ax.scatter(
+        gdf["lon_cen"], gdf["lat_cen"],
+        color="white", edgecolors="k", linewidths=0.8,
+        s=50, zorder=3,
+    )
+
+    # Annotate with gage IDs
+    for _, row in gdf.iterrows():
+        ax.annotate(
+            str(int(row["hru_id"])),
+            xy=(row["lon_cen"], row["lat_cen"]),
+            xytext=(5, 4),
+            textcoords="offset points",
+            fontsize=7.5,
+            color="#111111",
+            zorder=4,
+        )
+
+    if nse_by_basin is not None:
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, fraction=0.03, pad=0.04)
+        cbar.set_label("NSE", fontsize=11)
+
+    ax.set_xlabel("Longitude", fontsize=11)
+    ax.set_ylabel("Latitude", fontsize=11)
+    ax.set_title(
+        title or "CAMELS Subset — Watershed Boundaries (Southern Appalachians)",
+        fontsize=12,
+    )
+    ax.set_facecolor("#eef2f7")
+    ax.grid(alpha=0.35)
+
+    plt.tight_layout()
+    plt.show()
 
 
 def plot_basin_overview(loader, basin_idx: int = 0):

@@ -1,14 +1,33 @@
 [project]
 name = "foundations-of-ml"
+description = "CIROH DevCon 2026 Foundations of Machine Learning workshop"
 version = "0.1.0"
-description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Leo Lonzarich", email = "lglonzaric@gmail.com" },
+    { name = "Savalan Neisary", email = "savalan.neisary@gmail.com" },
+]
+maintainers = [
+    { name = "Leo Lonzarich", email = "lglonzaric@gmail.com" },
+    { name = "Savalan Neisary", email = "savalan.neisary@gmail.com" },
+]
+requires-python = ">=3.12.0"
+keywords = [
+    "pytorch",
+    "hydrology",
+    "deep-learning",
+    "scientific-computing",
+]
 dependencies = [
-    "matplotlib>=3.10.9",
-    "pyarrow>=24.0.0",
-    "scikit-learn>=1.8.0",
-    "scipy>=1.17.1",
-    "torch>=2.12.0",
-    "tqdm>=4.67.3",
+    "geopandas",
+    "ipykernel",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "scikit-learn",
+    "scipy",
+    "torch",
+    "tqdm",
 ]

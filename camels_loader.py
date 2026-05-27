@@ -1,5 +1,5 @@
 """
-Lightweight loader for the 10-basin CAMELS daymetv2 subset pickle.
+Lightweight loader for CAMELS Daymet V2 data.
 
 Pickle structure:
     tuple(

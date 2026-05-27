@@ -10,6 +10,7 @@ boilerplate.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import geopandas as gpd
 import numpy as np
@@ -20,18 +21,25 @@ import matplotlib.colors as mcolors
 from scipy import stats
 
 
-def plot_gage_locations(loader, data_dir, nse_by_basin=None, title=None):
+def plot_gage_locations(
+    loader: Any,
+    data_dir: str | Path,
+    nse_by_basin: dict[int, float] | None = None,
+    title: str | None = None,
+) -> None:
     """Map the CAMELS basin watershed polygons, optionally colored by NSE.
 
     Parameters
     ----------
-    loader : CamelsSubsetLoader
-    data_dir : str or Path
-        Root data directory that contains ``loc/camels_subset.shp``.
-    nse_by_basin : dict, optional
-        ``{gage_id: nse_value}`` — when provided, watersheds are filled by NSE
-        on a RdYlGn colormap clipped to [-0.5, 1].
-    title : str, optional
+    loader
+        CamelsSubsetLoader exposing a ``gage_ids`` attribute.
+    data_dir
+        Root data directory containing ``loc/camels_subset.shp``.
+    nse_by_basin
+        Mapping of gage ID to NSE value. When provided, watersheds are filled
+        by NSE on a RdYlGn colormap clipped to [-0.5, 1].
+    title
+        Optional figure title; defaults to a standard workshop caption.
     """
     shp_path = Path(data_dir) / "loc" / "camels_subset.shp"
     gdf = gpd.read_file(shp_path)
@@ -90,8 +98,17 @@ def plot_gage_locations(loader, data_dir, nse_by_basin=None, title=None):
     plt.show()
 
 
-def plot_basin_overview(loader, basin_idx: int = 0):
-    """Plot precipitation, temperature, and streamflow for one CAMELS basin."""
+def plot_basin_overview(loader: Any, basin_idx: int = 0) -> None:
+    """Plot precipitation, temperature, and streamflow for one CAMELS basin.
+
+    Parameters
+    ----------
+    loader
+        CamelsSubsetLoader exposing ``dates``, ``forcings``, ``target``, and
+        ``gage_ids``.
+    basin_idx
+        Index of the basin to plot.
+    """
     dates = loader.dates
     forcing_names = getattr(loader, "forcing_names", None)
 
@@ -162,8 +179,19 @@ def plot_basin_overview(loader, basin_idx: int = 0):
     plt.show()
 
 
-def plot_target_normalization_histogram(y_train, y_train_norm):
-    """Show how log + z-score normalization changes the target distribution."""
+def plot_target_normalization_histogram(
+    y_train: np.ndarray,
+    y_train_norm: np.ndarray,
+) -> None:
+    """Show how log + z-score normalization changes the target distribution.
+
+    Parameters
+    ----------
+    y_train
+        Raw training streamflow values (ft³/s), any shape with possible NaNs.
+    y_train_norm
+        Normalized training streamflow values, same shape as y_train.
+    """
     raw_vals = y_train[~np.isnan(y_train)].ravel()
     norm_vals = y_train_norm[~np.isnan(y_train_norm)].ravel()
 
@@ -181,8 +209,22 @@ def plot_target_normalization_histogram(y_train, y_train_norm):
     plt.show()
 
 
-def plot_learning_curves(train_losses, val_losses, title: str = "Learning Curves"):
-    """Plot train and validation loss curves."""
+def plot_learning_curves(
+    train_losses: list[float],
+    val_losses: list[float],
+    title: str = "Learning Curves",
+) -> None:
+    """Plot train and validation loss curves.
+
+    Parameters
+    ----------
+    train_losses
+        Per-epoch training MSE loss values.
+    val_losses
+        Per-epoch validation MSE loss values.
+    title
+        Figure title.
+    """
     fig, ax = plt.subplots(figsize=(9, 4))
     epochs = range(1, len(train_losses) + 1)
 
@@ -198,15 +240,33 @@ def plot_learning_curves(train_losses, val_losses, title: str = "Learning Curves
 
 
 def plot_hydrograph(
-    dates_test,
-    obs_cfs_test,
-    pred_cfs_test,
-    gage_ids,
-    nse_by_basin,
+    dates_test: pd.DatetimeIndex,
+    obs_cfs_test: np.ndarray,
+    pred_cfs_test: np.ndarray,
+    gage_ids: np.ndarray,
+    nse_by_basin: dict,
     basin_idx: int = 0,
-    zoom=slice(-548, None),
-):
-    """Plot observed vs predicted streamflow for one basin."""
+    zoom: slice = slice(-548, None),
+) -> None:
+    """Plot observed vs predicted streamflow for one basin.
+
+    Parameters
+    ----------
+    dates_test
+        Date index for the test period.
+    obs_cfs_test
+        Observed streamflow in ft³/s, shape ``(time, basins)``.
+    pred_cfs_test
+        Predicted streamflow in ft³/s, shape ``(time, basins)``.
+    gage_ids
+        Array of gage identifiers, one per basin.
+    nse_by_basin
+        Mapping of gage ID to NSE score.
+    basin_idx
+        Index of the basin to plot.
+    zoom
+        Slice selecting the zoomed subplot period (default: last 18 months).
+    """
     gid = gage_ids[basin_idx]
     fig, axes = plt.subplots(2, 1, figsize=(14, 6), sharex=False)
 
@@ -247,8 +307,25 @@ def plot_hydrograph(
     plt.show()
 
 
-def plot_scatter_basins(obs_cfs_test, pred_cfs_test, gage_ids, nse_by_basin):
-    """Plot observed vs predicted scatter plots for all basins."""
+def plot_scatter_basins(
+    obs_cfs_test: np.ndarray,
+    pred_cfs_test: np.ndarray,
+    gage_ids: np.ndarray,
+    nse_by_basin: dict,
+) -> None:
+    """Plot observed vs predicted scatter plots for all basins.
+
+    Parameters
+    ----------
+    obs_cfs_test
+        Observed streamflow in ft³/s, shape ``(time, basins)``.
+    pred_cfs_test
+        Predicted streamflow in ft³/s, shape ``(time, basins)``.
+    gage_ids
+        Array of gage identifiers, one per basin.
+    nse_by_basin
+        Mapping of gage ID to NSE score.
+    """
     fig, axes = plt.subplots(2, 5, figsize=(15, 6))
 
     for i, (ax, gid) in enumerate(zip(axes.ravel(), gage_ids)):
@@ -273,14 +350,34 @@ def plot_scatter_basins(obs_cfs_test, pred_cfs_test, gage_ids, nse_by_basin):
     plt.show()
 
 
-def plot_bias_variance(dates_test, obs_cfs_test, configs, basin_idx: int = 0, n_plot: int = 365, seq_len= 365, save_path: str | None = "bias_variance_demo.png"):
+def plot_bias_variance(
+    dates_test: pd.DatetimeIndex,
+    obs_cfs_test: np.ndarray,
+    configs: list[tuple],
+    basin_idx: int = 0,
+    n_plot: int = 365,
+    seq_len: int = 365,
+    save_path: str | None = "bias_variance_demo.png",
+) -> None:
     """Compare underfitting, baseline, and overfitting runs.
 
     Parameters
     ----------
-    configs : list of tuples
-        Each tuple should be:
-        (title, train_losses, val_losses, prediction_array, nse_value, color)
+    dates_test
+        Date index for the test period.
+    obs_cfs_test
+        Observed streamflow in ft³/s, shape ``(time, basins)``.
+    configs
+        List of tuples, one per model variant. Each tuple must contain:
+        ``(title, train_losses, val_losses, prediction_array, nse_value, color)``.
+    basin_idx
+        Index of the basin to plot in hydrograph panels.
+    n_plot
+        Number of days to show in the hydrograph zoom.
+    seq_len
+        Context window length; used as the starting offset for the zoom.
+    save_path
+        File path to save the figure, or None to skip saving.
     """
     fig, axes = plt.subplots(2, 3, figsize=(16, 8))
     start = seq_len
@@ -317,17 +414,39 @@ def plot_bias_variance(dates_test, obs_cfs_test, configs, basin_idx: int = 0, n_
 
 
 def plot_feature_engineering_comparison(
-    dates_test,
-    obs_cfs_test,
-    pred_baseline,
-    pred_feature_engineered,
-    gage_ids,
-    nse_baseline,
-    nse_feature_engineered,
+    dates_test: pd.DatetimeIndex,
+    obs_cfs_test: np.ndarray,
+    pred_baseline: np.ndarray,
+    pred_feature_engineered: np.ndarray,
+    gage_ids: np.ndarray,
+    nse_baseline: dict,
+    nse_feature_engineered: dict,
     basin_idx: int = 0,
-    zoom=slice(-548, None),
-):
-    """Compare baseline and feature-engineered LSTM predictions for one basin."""
+    zoom: slice = slice(-548, None),
+) -> None:
+    """Compare baseline and feature-engineered LSTM predictions for one basin.
+
+    Parameters
+    ----------
+    dates_test
+        Date index for the test period.
+    obs_cfs_test
+        Observed streamflow in ft³/s, shape ``(time, basins)``.
+    pred_baseline
+        Baseline model predictions in ft³/s, shape ``(time, basins)``.
+    pred_feature_engineered
+        Feature-engineered model predictions in ft³/s, shape ``(time, basins)``.
+    gage_ids
+        Array of gage identifiers, one per basin.
+    nse_baseline
+        Mapping of gage ID to baseline NSE score.
+    nse_feature_engineered
+        Mapping of gage ID to feature-engineered NSE score.
+    basin_idx
+        Index of the basin to plot.
+    zoom
+        Slice selecting the zoomed subplot period (default: last 18 months).
+    """
     gid = gage_ids[basin_idx]
 
     baseline_nse = nse_baseline[gid]
@@ -388,8 +507,19 @@ def plot_feature_engineering_comparison(
     plt.show()
 
 
-def plot_nse_comparison(nse_baseline, nse_feature_engineered):
-    """Bar plot comparing basin-level NSE before and after feature engineering."""
+def plot_nse_comparison(
+    nse_baseline: dict,
+    nse_feature_engineered: dict,
+) -> None:
+    """Bar plot comparing basin-level NSE before and after feature engineering.
+
+    Parameters
+    ----------
+    nse_baseline
+        Mapping of gage ID to baseline NSE score.
+    nse_feature_engineered
+        Mapping of gage ID to feature-engineered NSE score.
+    """
     gage_ids = list(nse_baseline.keys())
     baseline_vals = np.array([nse_baseline[gid] for gid in gage_ids], dtype=float)
     fe_vals = np.array([nse_feature_engineered[gid] for gid in gage_ids], dtype=float)
@@ -413,12 +543,24 @@ def plot_nse_comparison(nse_baseline, nse_feature_engineered):
     plt.show()
 
 
-
-def plot_seasonal_bias_and_error_magnitude(dates_test, obs_cfs_test, pred_base_cfs):
+def plot_seasonal_bias_and_error_magnitude(
+    dates_test: pd.DatetimeIndex,
+    obs_cfs_test: np.ndarray,
+    pred_base_cfs: np.ndarray,
+) -> None:
     """Plot seasonal residual bias and error-vs-flow magnitude.
 
     Moved from Notebook 2, Cell 5. The plotting code is infrastructure; the
     teaching point is how to interpret the residual patterns.
+
+    Parameters
+    ----------
+    dates_test
+        Date index for the test period.
+    obs_cfs_test
+        Observed streamflow in ft³/s, shape ``(time, basins)``.
+    pred_base_cfs
+        Baseline model predictions in ft³/s, shape ``(time, basins)``.
     """
     # Seasonal bias: residuals by calendar month
     errors = pred_base_cfs - obs_cfs_test  # positive = over-prediction
@@ -452,14 +594,28 @@ def plot_seasonal_bias_and_error_magnitude(dates_test, obs_cfs_test, pred_base_c
     plt.tight_layout()
     plt.show()
 
-def plot_flow_duration_curves(obs_cfs_test, pred_base_cfs, gage_ids, nse_base):
+def plot_flow_duration_curves(
+    obs_cfs_test: np.ndarray,
+    pred_base_cfs: np.ndarray,
+    gage_ids: np.ndarray,
+    nse_base: dict,
+) -> None:
     """Plot flow duration curves for each basin.
 
-    Moved from Notebook 2, Cell 6.
-    """
-    # Flow duration curves — exceedance probability
-    # A good model should match the full distribution, not just the mean.
+    Moved from Notebook 2, Cell 6. A good model should match the full
+    distribution, not just the mean.
 
+    Parameters
+    ----------
+    obs_cfs_test
+        Observed streamflow in ft³/s, shape ``(time, basins)``.
+    pred_base_cfs
+        Baseline model predictions in ft³/s, shape ``(time, basins)``.
+    gage_ids
+        Array of gage identifiers, one per basin.
+    nse_base
+        Mapping of gage ID to baseline NSE score.
+    """
     fig, axes = plt.subplots(2, 5, figsize=(15, 6))
 
     for i, (ax, gid) in enumerate(zip(axes.ravel(), gage_ids)):
@@ -487,14 +643,31 @@ def plot_flow_duration_curves(obs_cfs_test, pred_base_cfs, gage_ids, nse_base):
     plt.show()
 
 
-def plot_nse_vs_attributes(attributes, attribute_names, gage_ids, nse_base, attr_keys):
+def plot_nse_vs_attributes(
+    attributes: np.ndarray,
+    attribute_names: list[str],
+    gage_ids: np.ndarray,
+    nse_base: dict,
+    attr_keys: list[str],
+) -> None:
     """Plot basin-level NSE against selected static basin attributes.
 
-    Moved from Notebook 2, Cell 7.
-    """
-    # Does NSE correlate with basin attributes?
-    # This helps identify what information the model is missing.
+    Moved from Notebook 2, Cell 7. Helps identify what information the model
+    is missing by checking whether NSE correlates with basin attributes.
 
+    Parameters
+    ----------
+    attributes
+        Static attribute array of shape ``(basins, n_attrs)``.
+    attribute_names
+        Ordered list of attribute names corresponding to columns in ``attributes``.
+    gage_ids
+        Array of gage identifiers, one per basin.
+    nse_base
+        Mapping of gage ID to baseline NSE score.
+    attr_keys
+        Names of the attributes to plot (must be present in ``attribute_names``).
+    """
     nse_arr = np.array(list(nse_base.values()))
 
     fig, axes = plt.subplots(2, 3, figsize=(13, 7))
@@ -517,10 +690,23 @@ def plot_nse_vs_attributes(attributes, attribute_names, gage_ids, nse_base, attr
     plt.show()
 
 
-def plot_model_comparison(all_models, gage_ids, save_path: str | None = "model_comparison.png"):
+def plot_model_comparison(
+    all_models: dict[str, dict],
+    gage_ids: np.ndarray,
+    save_path: str | None = "model_comparison.png",
+) -> None:
     """Plot mean NSE and per-basin NSE for all model variants.
 
     Moved from Notebook 2, Cell 18.
+
+    Parameters
+    ----------
+    all_models
+        Mapping of model name to a dict of ``{gage_id: nse_value}`` scores.
+    gage_ids
+        Array of gage identifiers, one per basin.
+    save_path
+        File path to save the figure, or None to skip saving.
     """
     mean_nse = {name: np.nanmean(list(scores.values())) for name, scores in all_models.items()}
     colors = ["#7f8c8d", "#2980b9", "#27ae60", "#8e44ad"]
@@ -556,12 +742,16 @@ def plot_model_comparison(all_models, gage_ids, save_path: str | None = "model_c
     plt.show()
 
 
-def plot_validation_loss_comparison(lc_data):
+def plot_validation_loss_comparison(lc_data: list[tuple]) -> None:
     """Plot validation loss curves for all model variants.
 
     Moved from Notebook 2, Cell 19.
+
+    Parameters
+    ----------
+    lc_data
+        List of tuples, one per variant: ``(name, val_losses, color)``.
     """
-    # Validation loss curves for all variants
     fig, ax = plt.subplots(figsize=(10, 4))
     for name, vl, c in lc_data:
         ax.plot(vl, color=c, lw=2, label=name)

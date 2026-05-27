@@ -22,6 +22,9 @@ StreamflowDataset       Sliding-window PyTorch Dataset (dynamic forcings only)
 make_overfit_loader     Build a tiny one-year DataLoader for overfitting demo
 """
 
+from pathlib import Path
+from typing import Any, Callable
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -38,7 +41,18 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ---------------------------------------------------------------------------
 
 def count_params(model: nn.Module) -> int:
-    """Return the number of trainable parameters in *model*."""
+    """Return the number of trainable parameters in *model*.
+
+    Parameters
+    ----------
+    model
+        The PyTorch module to inspect.
+
+    Returns
+    -------
+    int
+        Total count of trainable parameters.
+    """
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
@@ -55,8 +69,15 @@ def nse_score(pred: np.ndarray, obs: np.ndarray) -> float:
 
     Parameters
     ----------
-    pred : predicted streamflow (ft³/s), any shape
-    obs  : observed streamflow (ft³/s), same shape as pred
+    pred
+        Predicted streamflow (ft³/s), any shape.
+    obs
+        Observed streamflow (ft³/s), same shape as pred.
+
+    Returns
+    -------
+    float
+        NSE value in (-inf, 1], or NaN if insufficient valid data.
     """
     mask = ~np.isnan(obs) & ~np.isnan(pred)
     if mask.sum() < 2:
@@ -76,6 +97,18 @@ def masked_mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     Streamflow records contain gaps (sensor outages, ice, etc.).  Standard
     MSE treats NaN as a valid value and produces NaN gradients.  This version
     masks those positions out before computing the mean.
+
+    Parameters
+    ----------
+    pred
+        Model predictions tensor.
+    target
+        Ground-truth tensor, possibly containing NaN values.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar loss tensor; differentiably zero when all targets are NaN.
     """
     mask = ~torch.isnan(target)
     if mask.sum() == 0:
@@ -88,14 +121,14 @@ def masked_mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 # ---------------------------------------------------------------------------
 
 def train_model(
-    model,
+    model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
     n_epochs: int = 30,
     lr: float = 1e-3,
     verbose: bool = True,
-):
-    """Train *model* and return (train_losses, val_losses) per epoch.
+) -> tuple[list[float], list[float]]:
+    """Train *model* and return per-epoch train and validation losses.
 
     Production details handled here so the notebook can stay focused on
     concepts:
@@ -108,12 +141,25 @@ def train_model(
 
     Parameters
     ----------
-    model        : nn.Module — must accept (x_batch,) in forward()
-    train_loader : DataLoader yielding (x, y) batches
-    val_loader   : DataLoader yielding (x, y) batches
-    n_epochs     : number of full passes over the training set
-    lr           : initial learning rate
-    verbose      : if True, print a summary line every 5 epochs
+    model
+        Must accept a single input tensor ``(x_batch,)`` in its forward method.
+    train_loader
+        DataLoader yielding ``(x, y)`` batches.
+    val_loader
+        DataLoader yielding ``(x, y)`` batches.
+    n_epochs
+        Number of full passes over the training set.
+    lr
+        Initial learning rate.
+    verbose
+        If True, print a summary line every 5 epochs.
+
+    Returns
+    -------
+    train_losses
+        Per-epoch training MSE loss values.
+    val_losses
+        Per-epoch validation MSE loss values.
     """
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -170,17 +216,40 @@ def train_model(
 # ---------------------------------------------------------------------------
 
 def train_model_with_attrs(
-    model,
+    model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
     n_epochs: int = 30,
     lr: float = 1e-3,
     verbose: bool = True,
-):
-    """Same as train_model, but for models whose forward() takes
-    (x_dynamic, x_static) — used in Notebook 2 for LstmWithAttrs.
+) -> tuple[list[float], list[float]]:
+    """Train *model* and return per-epoch losses; forward takes (x_dynamic, x_static).
 
-    DataLoaders must yield (x_dynamic, x_static, y) triples.
+    Same training loop as ``train_model``, but for models whose ``forward()``
+    method accepts ``(x_dynamic, x_static)``. DataLoaders must yield
+    ``(x_dynamic, x_static, y)`` triples.
+
+    Parameters
+    ----------
+    model
+        Must accept ``(x_dyn, x_stat)`` in its forward method.
+    train_loader
+        DataLoader yielding ``(x_dynamic, x_static, y)`` triples.
+    val_loader
+        DataLoader yielding ``(x_dynamic, x_static, y)`` triples.
+    n_epochs
+        Number of full passes over the training set.
+    lr
+        Initial learning rate.
+    verbose
+        If True, print a summary line every 5 epochs.
+
+    Returns
+    -------
+    train_losses
+        Per-epoch training MSE loss values.
+    val_losses
+        Per-epoch validation MSE loss values.
     """
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -235,16 +304,16 @@ def train_model_with_attrs(
 # ---------------------------------------------------------------------------
 
 def load_or_train(
-    model,
+    model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
     n_epochs: int = 30,
     lr: float = 1e-3,
     verbose: bool = True,
-    weights_path=None,
+    weights_path: str | Path | None = None,
     train_from_scratch: bool = True,
     save_weights: bool = False,
-):
+) -> tuple[list[float], list[float]]:
     """Train *model* or load pre-saved weights, controlled by workshop flags.
 
     This wrapper exists so notebook training cells stay clean while still
@@ -259,24 +328,34 @@ def load_or_train(
 
     Parameters
     ----------
-    model             : nn.Module to train or load into
-    train_loader      : DataLoader yielding (x, y) batches
-    val_loader        : DataLoader yielding (x, y) batches
-    n_epochs          : number of epochs to train (used for training and for
-                        the length of dummy loss lists when loading)
-    lr                : initial learning rate
-    verbose           : if True, print a summary line every 5 epochs
-    weights_path      : Path-like — where to save / load the .pt checkpoint.
-                        If None, saving and loading are both skipped silently.
-    train_from_scratch: if True, train normally; if False, load from weights_path
-    save_weights      : if True (and train_from_scratch is True), save after training
+    model
+        Module to train or load into.
+    train_loader
+        DataLoader yielding ``(x, y)`` batches.
+    val_loader
+        DataLoader yielding ``(x, y)`` batches.
+    n_epochs
+        Number of epochs to train (also sets the length of dummy loss lists
+        when loading pre-saved weights).
+    lr
+        Initial learning rate.
+    verbose
+        If True, print a summary line every 5 epochs.
+    weights_path
+        Where to save or load the ``.pt`` checkpoint. If None, saving and
+        loading are both skipped silently.
+    train_from_scratch
+        If True, train normally; if False, load from weights_path.
+    save_weights
+        If True (and train_from_scratch is True), save after training.
 
     Returns
     -------
-    train_losses, val_losses : lists of per-epoch loss values
+    train_losses
+        Per-epoch training MSE loss values.
+    val_losses
+        Per-epoch validation MSE loss values.
     """
-    from pathlib import Path
-
     weights_path = Path(weights_path) if weights_path is not None else None
 
     if not train_from_scratch:
@@ -321,16 +400,16 @@ def load_or_train(
 # ---------------------------------------------------------------------------
 
 def load_or_train_with_attrs(
-    model,
+    model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
     n_epochs: int = 30,
     lr: float = 1e-3,
     verbose: bool = True,
-    weights_path=None,
+    weights_path: str | Path | None = None,
     train_from_scratch: bool = True,
     save_weights: bool = False,
-):
+) -> tuple[list[float], list[float]]:
     """Same as load_or_train, but wraps train_model_with_attrs.
 
     Use this for models whose forward() takes (x_dynamic, x_static), such as
@@ -339,22 +418,32 @@ def load_or_train_with_attrs(
 
     Parameters
     ----------
-    model             : nn.Module whose forward() takes (x_dyn, x_stat)
-    train_loader      : DataLoader yielding (x_dynamic, x_static, y) triples
-    val_loader        : DataLoader yielding (x_dynamic, x_static, y) triples
-    n_epochs          : number of epochs to train
-    lr                : initial learning rate
-    verbose           : if True, print a summary line every 5 epochs
-    weights_path      : Path-like — where to save / load the .pt checkpoint
-    train_from_scratch: if True, train normally; if False, load from weights_path
-    save_weights      : if True (and train_from_scratch is True), save after training
+    model
+        Module whose forward method takes ``(x_dyn, x_stat)``.
+    train_loader
+        DataLoader yielding ``(x_dynamic, x_static, y)`` triples.
+    val_loader
+        DataLoader yielding ``(x_dynamic, x_static, y)`` triples.
+    n_epochs
+        Number of epochs to train.
+    lr
+        Initial learning rate.
+    verbose
+        If True, print a summary line every 5 epochs.
+    weights_path
+        Where to save or load the ``.pt`` checkpoint.
+    train_from_scratch
+        If True, train normally; if False, load from weights_path.
+    save_weights
+        If True (and train_from_scratch is True), save after training.
 
     Returns
     -------
-    train_losses, val_losses : lists of per-epoch loss values
+    train_losses
+        Per-epoch training MSE loss values.
+    val_losses
+        Per-epoch validation MSE loss values.
     """
-    from pathlib import Path
-
     weights_path = Path(weights_path) if weights_path is not None else None
 
     if not train_from_scratch:
@@ -399,7 +488,7 @@ def load_or_train_with_attrs(
 # ---------------------------------------------------------------------------
 
 def predict_full_timeseries(
-    model,
+    model: nn.Module,
     x_norm: np.ndarray,
     seq_len: int = 365,
 ) -> np.ndarray:
@@ -412,13 +501,19 @@ def predict_full_timeseries(
 
     Parameters
     ----------
-    model   : trained nn.Module
-    x_norm  : (time, basins, features) normalised forcing array
-    seq_len : context window length in days
+    model
+        Trained module; called with a single ``(basins, seq_len, features)``
+        tensor and expected to return ``(basins, seq_len)`` predictions.
+    x_norm
+        Normalised forcing array of shape ``(time, basins, features)``.
+    seq_len
+        Context window length in days.
 
     Returns
     -------
-    preds : (time, basins) float32 array in normalised space
+    np.ndarray
+        Float32 array of shape ``(time, basins)`` in normalised space. The
+        first ``seq_len`` rows are NaN.
     """
     model.eval()
     n_time, n_basins, _ = x_norm.shape
@@ -439,7 +534,7 @@ def predict_full_timeseries(
 # ---------------------------------------------------------------------------
 
 def predict_ts_with_attrs(
-    model,
+    model: nn.Module,
     x_norm: np.ndarray,
     attrs_norm: np.ndarray,
     seq_len: int = 365,
@@ -448,10 +543,20 @@ def predict_ts_with_attrs(
 
     Parameters
     ----------
-    model      : trained nn.Module whose forward() takes (x_dyn, x_stat)
-    x_norm     : (time, basins, features) normalised forcing array
-    attrs_norm : (basins, n_attrs) normalised static attribute array
-    seq_len    : context window length in days
+    model
+        Trained module whose forward method takes ``(x_dyn, x_stat)``.
+    x_norm
+        Normalised forcing array of shape ``(time, basins, features)``.
+    attrs_norm
+        Normalised static attribute array of shape ``(basins, n_attrs)``.
+    seq_len
+        Context window length in days.
+
+    Returns
+    -------
+    np.ndarray
+        Float32 array of shape ``(time, basins)`` in normalised space. The
+        first ``seq_len`` rows are NaN.
     """
     model.eval()
     n_time, n_basins, _ = x_norm.shape
@@ -491,10 +596,14 @@ class StreamflowDataset(Dataset):
 
     Parameters
     ----------
-    x       : (time, basins, features)
-    y       : (time, basins, 1)
-    seq_len : window length in days
-    stride  : days between consecutive windows
+    x
+        Forcing array of shape ``(time, basins, features)``.
+    y
+        Target array of shape ``(time, basins, 1)``.
+    seq_len
+        Window length in days.
+    stride
+        Days between consecutive windows.
     """
 
     def __init__(
@@ -503,7 +612,7 @@ class StreamflowDataset(Dataset):
         y: np.ndarray,
         seq_len: int = 365,
         stride: int = 1,
-    ):
+    ) -> None:
         self.seq_len = seq_len
         self.samples = []
         n_time, n_basins, _ = x.shape
@@ -517,7 +626,7 @@ class StreamflowDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         x, y = self.samples[idx]
         return torch.from_numpy(x), torch.from_numpy(y)
 
@@ -526,17 +635,17 @@ class StreamflowDataset(Dataset):
 # ---------------------------------------------------------------------------
 
 def make_overfit_loader(
-    loader,
+    loader: Any,
     x_mean: np.ndarray,
     x_std: np.ndarray,
-    normalize_target,
+    normalize_target: Callable,
     seq_len: int,
     start_date: str = "1990-10-01",
     end_date: str = "1991-09-30",
     batch_size: int = 32,
     stride: int = 1,
     fallback_loader: DataLoader | None = None,
-):
+) -> DataLoader:
     """Create a tiny one-year DataLoader for the overfitting demonstration.
 
     This helper hides workshop infrastructure so the notebook can focus on the
@@ -545,24 +654,28 @@ def make_overfit_loader(
 
     Parameters
     ----------
-    loader : CamelsSubsetLoader-like object
-        Must expose dates, forcings, and target.
-    x_mean, x_std : arrays
-        Training-set forcing normalization statistics from Notebook 1.
-    normalize_target : callable
-        Function defined in Notebook 1, using training-set target statistics.
-    seq_len : int
+    loader
+        CamelsSubsetLoader-like object exposing ``dates``, ``forcings``, and
+        ``target`` attributes.
+    x_mean
+        Training-set forcing normalization mean from Notebook 1.
+    x_std
+        Training-set forcing normalization standard deviation from Notebook 1.
+    normalize_target
+        Callable defined in Notebook 1 using training-set target statistics.
+    seq_len
         Sliding-window length in days.
-    start_date, end_date : str
-        Date range used to create the tiny training subset.
-    batch_size : int
+    start_date
+        Start of the tiny training subset (inclusive).
+    end_date
+        End of the tiny training subset (inclusive).
+    batch_size
         Batch size for the returned DataLoader.
-    stride : int
+    stride
         Sliding-window stride.
-    fallback_loader : DataLoader or None
+    fallback_loader
         If the chosen tiny period is too short to create samples, return this
-        loader instead. This keeps the live workshop from failing if data are
-        changed later.
+        loader instead. Keeps the live workshop from failing if data change.
 
     Returns
     -------
@@ -593,11 +706,21 @@ def make_overfit_loader(
 # 12. Feature engineering helpers
 # ---------------------------------------------------------------------------
 
-def _find_precipitation_index(forcing_names) -> int:
+def _find_precipitation_index(forcing_names: list[str]) -> int:
     """Find the precipitation column in a forcing-name list.
 
     Falls back to column 0 because most CAMELS forcing tables place
     precipitation first.
+
+    Parameters
+    ----------
+    forcing_names
+        Ordered list of forcing variable names.
+
+    Returns
+    -------
+    int
+        Index of the precipitation column.
     """
     names = [str(name).lower() for name in forcing_names]
     for key in ("prcp", "precip", "precipitation", "pr"):
@@ -608,11 +731,22 @@ def _find_precipitation_index(forcing_names) -> int:
 
 
 def _trailing_rolling_sum(values: np.ndarray, window: int) -> np.ndarray:
-    """Trailing rolling sum along time using available history.
+    """Trailing rolling sum along the time axis using available history.
 
-    values has shape (time, basins). For each day t, this computes the sum of
-    values[max(0, t-window+1) : t+1]. This avoids introducing NaNs at the
-    beginning of the record.
+    For each day t, computes the sum of ``values[max(0, t-window+1) : t+1]``.
+    This avoids introducing NaNs at the beginning of the record.
+
+    Parameters
+    ----------
+    values
+        Array of shape ``(time, basins)``.
+    window
+        Number of days to include in each rolling sum.
+
+    Returns
+    -------
+    np.ndarray
+        Float32 array of the same shape as ``values``.
     """
     values = np.nan_to_num(values.astype(np.float32), nan=0.0)
     out = np.empty_like(values, dtype=np.float32)
@@ -629,14 +763,14 @@ def _trailing_rolling_sum(values: np.ndarray, window: int) -> np.ndarray:
 
 
 def make_feature_engineered_inputs(
-    loader,
-    train_mask,
-    val_mask,
-    test_mask,
-    forcing_names,
-    precip_windows=(7, 30),
+    loader: Any,
+    train_mask: np.ndarray,
+    val_mask: np.ndarray,
+    test_mask: np.ndarray,
+    forcing_names: list[str],
+    precip_windows: tuple[int, ...] = (7, 30),
     include_seasonal_encoding: bool = True,
-):
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str], np.ndarray, np.ndarray]:
     """Create feature-engineered forcing arrays and normalize them.
 
     This helper keeps feature-construction infrastructure out of the notebook.
@@ -654,6 +788,38 @@ def make_feature_engineered_inputs(
     -------------
     Mean and standard deviation are computed from the training period only,
     then reused for validation and testing.
+
+    Parameters
+    ----------
+    loader
+        CamelsSubsetLoader-like object exposing ``forcings`` and ``dates``.
+    train_mask
+        Boolean index array selecting the training time steps.
+    val_mask
+        Boolean index array selecting the validation time steps.
+    test_mask
+        Boolean index array selecting the test time steps.
+    forcing_names
+        Ordered list of forcing variable names in ``loader.forcings``.
+    precip_windows
+        Accumulation windows (in days) to compute trailing precipitation sums.
+    include_seasonal_encoding
+        If True, append sin/cos day-of-year columns.
+
+    Returns
+    -------
+    x_train_fe_norm
+        Normalised feature-engineered training array.
+    x_val_fe_norm
+        Normalised feature-engineered validation array.
+    x_test_fe_norm
+        Normalised feature-engineered test array.
+    feature_names
+        Names of all engineered features in column order.
+    x_fe_mean
+        Training-set feature means used for normalization.
+    x_fe_std
+        Training-set feature standard deviations used for normalization.
     """
     x_base = np.asarray(loader.forcings, dtype=np.float32)
     dates = np.asarray(loader.dates, dtype="datetime64[D]")
@@ -711,17 +877,40 @@ def make_feature_engineered_inputs(
 
 
 def evaluate_streamflow_model(
-    model,
+    model: nn.Module,
     x_test_norm: np.ndarray,
     obs_cfs_test: np.ndarray,
-    denormalize_target,
+    denormalize_target: Callable,
     seq_len: int,
-    gage_ids,
-):
+    gage_ids: np.ndarray,
+) -> tuple[np.ndarray, dict]:
     """Run full-test inference and compute NSE by basin.
 
     Kept as a helper because it repeats the evaluation infrastructure already
     shown earlier in the notebook.
+
+    Parameters
+    ----------
+    model
+        Trained module to evaluate.
+    x_test_norm
+        Normalised forcing array for the test period,
+        shape ``(time, basins, features)``.
+    obs_cfs_test
+        Observed streamflow in ft³/s, shape ``(time, basins)``.
+    denormalize_target
+        Callable that converts normalised predictions back to ft³/s.
+    seq_len
+        Context window length used during training.
+    gage_ids
+        Array of gage identifiers, one per basin.
+
+    Returns
+    -------
+    pred_cfs_test
+        Denormalized predictions in ft³/s, shape ``(time, basins)``.
+    nse_by_basin
+        Dictionary mapping each gage ID to its NSE score.
     """
     pred_norm_test = predict_full_timeseries(model, x_test_norm, seq_len=seq_len)
     pred_cfs_test = denormalize_target(pred_norm_test)
@@ -743,9 +932,28 @@ class StreamflowDatasetWithAttrs(Dataset):
     Dataset plumbing are infrastructure. Conceptually, each sample is:
         (x_dynamic, x_static, y)
 
-    This is the same logic that was originally shown in the notebook.
+    Parameters
+    ----------
+    x
+        Forcing array of shape ``(time, basins, features)``.
+    y
+        Target array of shape ``(time, basins, 1)``.
+    attrs
+        Static attribute array of shape ``(basins, n_attrs)``.
+    seq_len
+        Window length in days.
+    stride
+        Days between consecutive windows.
     """
-    def __init__(self, x, y, attrs, seq_len=365, stride=1):
+
+    def __init__(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        attrs: np.ndarray,
+        seq_len: int = 365,
+        stride: int = 1,
+    ) -> None:
         self.samples = []
         n_time, n_basins, _ = x.shape
         for basin in range(n_basins):
@@ -756,9 +964,10 @@ class StreamflowDatasetWithAttrs(Dataset):
                     y[t:t + seq_len, basin, 0].astype(np.float32),
                 ))
 
-    def __len__(self): return len(self.samples)
+    def __len__(self) -> int:
+        return len(self.samples)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x_dyn, x_stat, y = self.samples[idx]
         return torch.from_numpy(x_dyn), torch.from_numpy(x_stat), torch.from_numpy(y)
 
@@ -776,11 +985,37 @@ def make_attr_dataloaders(
     seq_len: int,
     stride: int,
     batch_size: int = 128,
-):
+) -> tuple[DataLoader, DataLoader]:
     """Build training and validation DataLoaders for static-attribute models.
 
     This keeps the notebook focused on the concept — adding static basin
     attributes — rather than repeating Dataset/DataLoader boilerplate.
+
+    Parameters
+    ----------
+    x_train_norm
+        Normalised training forcing array of shape ``(time, basins, features)``.
+    y_train_norm
+        Normalised training target array of shape ``(time, basins, 1)``.
+    x_val_norm
+        Normalised validation forcing array of shape ``(time, basins, features)``.
+    y_val_norm
+        Normalised validation target array of shape ``(time, basins, 1)``.
+    attrs_norm
+        Normalised static attribute array of shape ``(basins, n_attrs)``.
+    seq_len
+        Sliding-window length in days.
+    stride
+        Days between consecutive windows.
+    batch_size
+        Batch size for the training DataLoader.
+
+    Returns
+    -------
+    train_loader_a
+        Shuffled DataLoader yielding ``(x_dynamic, x_static, y)`` triples.
+    val_loader_a
+        DataLoader yielding ``(x_dynamic, x_static, y)`` triples.
     """
     train_ds_a = StreamflowDatasetWithAttrs(x_train_norm, y_train_norm, attrs_norm, seq_len, stride)
     val_ds_a = StreamflowDatasetWithAttrs(x_val_norm, y_val_norm, attrs_norm, seq_len, stride)

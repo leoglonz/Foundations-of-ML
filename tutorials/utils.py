@@ -1,15 +1,6 @@
 """Utility functions.
 
 CIROH Developer's Conference 2026 | Foundations of Machine Learning.
-
-Contents
---------
-count_params            Count trainable parameters in an nn.Module
-nse_score               Nash-Sutcliffe Efficiency (numpy, NaN-safe)
-masked_mse_loss         MSE loss that skips NaN positions in the target
-train                   Full training loop with optional checkpoint save/load
-predict_full_timeseries Sliding-window inference over a full time series
-StreamflowDataset       Sliding-window PyTorch Dataset (dynamic forcings only)
 """
 
 from pathlib import Path
@@ -259,7 +250,7 @@ def train(
 # 8. predict_full_timeseries
 # ------------------------------------------------------------------------------
 
-def predict(
+def predict_full_timeseries(
     model: nn.Module,
     x_norm: np.ndarray,
     seq_len: int = 365,
@@ -539,7 +530,7 @@ def make_feature_engineered_inputs(
     )
 
 
-def evaluate(
+def evaluate_streamflow_model(
     model: nn.Module,
     x_test_norm: np.ndarray,
     obs_cfs_test: np.ndarray,
@@ -572,7 +563,7 @@ def evaluate(
     nse_by_basin
         Dictionary mapping each gage ID to its NSE score.
     """
-    pred_norm_test = predict(model, x_test_norm, seq_len=seq_len)
+    pred_norm_test = predict_full_timeseries(model, x_test_norm, seq_len=seq_len)
     pred_cfs_test = denormalize_target(pred_norm_test)
 
     nse_by_basin = {}

@@ -41,7 +41,7 @@ class CamelsSubsetLoader:
 
     Parameters
     ----------
-    path
+    pickle_path
         Path to the subset file.
     gage_id_path
         Path to the corresponding gage ID file.
@@ -51,12 +51,12 @@ class CamelsSubsetLoader:
 
     def __init__(
         self,
-        path: str,
+        pickle_path: str,
         gage_id_path: str,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
     ) -> None:
-        with open(path, "rb") as f:
+        with open(pickle_path, "rb") as f:
             forcings_raw, target_raw, attributes_raw = pickle.load(f)
 
         self.gage_ids: NDArray = np.load(gage_id_path, allow_pickle=True)
@@ -160,7 +160,7 @@ if __name__ == '__main__':
 
     base = os.path.dirname(__file__)
     loader = CamelsSubsetLoader(
-        path=os.path.join(base, 'data', 'camels_daymetv2_subset'),
+        pickle_path=os.path.join(base, 'data', 'camels_daymetv2_subset'),
         gage_id_path=os.path.join(base, 'data', 'gage_id_subset.npy'),
         start_date='1999-10-01',
         end_date='2008-09-30',

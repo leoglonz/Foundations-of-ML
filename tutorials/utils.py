@@ -283,14 +283,15 @@ def predict_full_timeseries(
         first seq_len rows are NaN.
     """
     model.eval()
+    model_device = next(model.parameters()).device
     n_time, n_basins, _ = x_norm.shape
     preds = np.full((n_time, n_basins), np.nan, dtype=np.float32)
-    attrs_t = torch.from_numpy(attrs_norm).float().to(device) if attrs_norm is not None else None
+    attrs_t = torch.from_numpy(attrs_norm).float().to(model_device) if attrs_norm is not None else None
 
     with torch.no_grad():
         for t in range(seq_len, n_time):
             window = x_norm[t - seq_len:t, :, :].transpose(1, 0, 2)  # (basins, seq, feat)
-            x_t = torch.from_numpy(window).float().to(device)
+            x_t = torch.from_numpy(window).float().to(model_device)
             out = model(x_t) if attrs_t is None else model(x_t, attrs_t)
             preds[t] = out[:, -1].cpu().numpy()
 
@@ -340,7 +341,7 @@ class StreamflowDataset(Dataset):
         self.samples = []
         n_time, n_basins, _ = x.shape
         for basin in range(n_basins):
-            for t in range(0, n_time - seq_len, stride):
+            for t in range(0, n_time - seq_len + 1, stride):
                 x_win = x[t:t + seq_len, basin, :].astype(np.float32)
                 y_win = y[t:t + seq_len, basin, 0].astype(np.float32)
                 if self.has_attrs:

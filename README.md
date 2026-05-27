@@ -53,7 +53,7 @@ Foundations-of-ML/
 
 5. You should now be able to start using notebooks **01** and **02** provided in `tutorials/`.
 
-### Personal Computer
+### Local
 
 1. Open a new terminal and clone this repository;
 
@@ -64,7 +64,7 @@ Foundations-of-ML/
 2. Create a new conda environment;
 
     ```bash
-    conda create -n workshop --python=3.12
+    conda create -n workshop python=3.11
     conda activate workshop
     ```
 
@@ -77,13 +77,6 @@ Foundations-of-ML/
 4. You should now be able to start using notebooks **01** and **02** provided in `tutorials/`.
 
 > `uv pip` may alternatively be used in place of `pip`.
-
-<!-- 
-Requires Python 3.12+. Install dependencies with [uv](https://github.com/astral-sh/uv):
-
-```bash
-uv sync
-``` -->
 
 ---
 

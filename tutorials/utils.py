@@ -15,7 +15,7 @@ from torch.utils.data import Dataset, DataLoader
 # ------------------------------------------------------------------------------
 # Device — auto-detected once at import time
 # ------------------------------------------------------------------------------
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cpu')
 
 
 # ------------------------------------------------------------------------------

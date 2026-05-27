@@ -17,13 +17,55 @@ import matplotlib.colors as mcolors
 from scipy import stats
 
 
+def _load_us_boundary() -> Any:
+    """Return a GeoDataFrame of US country + state boundaries.
+
+    Tries geodatasets (geopandas >= 0.14), then the legacy bundled dataset,
+    then a direct URL fetch from Natural Earth as a last resort.
+    """
+    import warnings
+
+    # Method 1: geodatasets (modern geopandas dependency)
+    try:
+        from geodatasets import get_path
+        world = gpd.read_file(get_path('naturalearth.land'))
+        # naturalearth.land has no country codes; clip to CONUS extent
+        from shapely.geometry import box
+        conus_box = box(-130, 22, -60, 52)
+        return world.clip(conus_box)
+    except Exception:
+        pass
+
+    # Method 2: geopandas bundled dataset (deprecated in >= 0.12, removed in 1.0)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))  # type: ignore[attr-defined]
+        return world[world['iso_a3'] == 'USA']
+    except Exception:
+        pass
+
+    # Method 3: fetch from Natural Earth CDN
+    try:
+        url = (
+            'https://naturalearth.s3.amazonaws.com/110m_cultural/'
+            'ne_110m_admin_1_states_provinces.zip'
+        )
+        states = gpd.read_file(url)
+        return states[states['iso_a2'] == 'US']
+    except Exception:
+        pass
+
+    return None
+
+
 def plot_gage_locations(
     loader: Any,
     data_dir: str | Path,
     nse_by_basin: dict[int, float] | None = None,
     title: str | None = None,
 ) -> None:
-    """Map CAMELS basin watershed polygons, optionally colored by NSE.
+    """Side-by-side map: full CONUS overview and zoomed southern Appalachians.
 
     Parameters
     ----------
@@ -35,12 +77,16 @@ def plot_gage_locations(
         Mapping of gage ID to NSE value. When provided, watersheds are filled
         by NSE on a RdYlGn colormap clipped to [-0.5, 1].
     title
-        Optional figure title.
+        Optional figure title override for the zoomed panel.
     """
+    from matplotlib.patches import Rectangle
+
     shp_path = Path(data_dir) / 'loc' / 'camels_subset.shp'
     gdf = gpd.read_file(shp_path)
+    us = _load_us_boundary()
 
     gage_ids = loader.gage_ids
+    cmap, norm = None, None
 
     if nse_by_basin is not None:
         gdf['nse'] = gdf['hru_id'].map(
@@ -48,24 +94,51 @@ def plot_gage_locations(
         )
         cmap = plt.cm.RdYlGn
         norm = mcolors.Normalize(vmin=-0.5, vmax=1.0)
-        colors = [cmap(norm(v)) if not np.isnan(v) else '#cccccc' for v in gdf['nse']]
+        basin_colors = [cmap(norm(v)) if not np.isnan(v) else '#cccccc' for v in gdf['nse']]
     else:
-        colors = ['steelblue'] * len(gdf)
+        basin_colors = ['steelblue'] * len(gdf)
 
-    fig, ax = plt.subplots(figsize=(8, 7))
+    minx, miny, maxx, maxy = gdf.total_bounds
+    pad_x, pad_y = 1.5, 1.2
 
-    gdf.plot(ax=ax, color=colors, edgecolor='k', linewidth=0.6, zorder=2)
+    LAND_COLOR  = '#d4e6c3'
+    WATER_COLOR = '#a8cfe0'
+    EDGE_COLOR  = '#777777'
 
-    # Scatter centroid markers
-    ax.scatter(
-        gdf['lon_cen'], gdf['lat_cen'],
-        color='white', edgecolors='k', linewidths=0.8,
-        s=50, zorder=3,
+    fig, (ax_us, ax_zoom) = plt.subplots(1, 2, figsize=(14, 6))
+
+    # ── Left panel: full CONUS ────────────────────────────────────────────────
+    ax_us.set_facecolor(WATER_COLOR)
+    if us is not None:
+        us.plot(ax=ax_us, color=LAND_COLOR, edgecolor=EDGE_COLOR, linewidth=0.4, zorder=1)
+    # Draw basins as solid red markers so they're visible at CONUS scale
+    gdf.plot(ax=ax_us, color='tomato', edgecolor='k', linewidth=0.4, zorder=3)
+    ax_us.set_xlim(-125, -65)
+    ax_us.set_ylim(24, 50)
+    ax_us.set_xlabel('Longitude', fontsize=10)
+    ax_us.set_ylabel('Latitude', fontsize=10)
+    ax_us.set_title('CONUS Overview', fontsize=12, fontweight='bold')
+    ax_us.grid(alpha=0.3)
+    # Draw a red rectangle around the basin region
+    rect = Rectangle(
+        (minx - pad_x, miny - pad_y),
+        (maxx - minx) + 2 * pad_x,
+        (maxy - miny) + 2 * pad_y,
+        linewidth=1.8, edgecolor='red', facecolor='none', zorder=4,
     )
+    ax_us.add_patch(rect)
 
-    # Annotate with gage IDs
+    # ── Right panel: zoomed southern Appalachians ─────────────────────────────
+    ax_zoom.set_facecolor(WATER_COLOR)
+    if us is not None:
+        us.plot(ax=ax_zoom, color=LAND_COLOR, edgecolor=EDGE_COLOR, linewidth=0.5, zorder=1)
+    gdf.plot(ax=ax_zoom, color=basin_colors, edgecolor='k', linewidth=0.6, zorder=2)
+    ax_zoom.scatter(
+        gdf['lon_cen'], gdf['lat_cen'],
+        color='white', edgecolors='k', linewidths=0.8, s=50, zorder=3,
+    )
     for _, row in gdf.iterrows():
-        ax.annotate(
+        ax_zoom.annotate(
             str(int(row['hru_id'])),
             xy=(row['lon_cen'], row['lat_cen']),
             xytext=(5, 4),
@@ -74,22 +147,26 @@ def plot_gage_locations(
             color='#111111',
             zorder=4,
         )
+    ax_zoom.set_xlim(minx - pad_x, maxx + pad_x)
+    ax_zoom.set_ylim(miny - pad_y, maxy + pad_y)
+    ax_zoom.set_xlabel('Longitude', fontsize=10)
+    ax_zoom.set_ylabel('Latitude', fontsize=10)
+    ax_zoom.set_title(
+        title or 'Southern Appalachians — Watershed Boundaries',
+        fontsize=12, fontweight='bold',
+    )
+    ax_zoom.grid(alpha=0.35)
 
     if nse_by_basin is not None:
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
-        cbar = plt.colorbar(sm, ax=ax, fraction=0.03, pad=0.04)
+        cbar = plt.colorbar(sm, ax=ax_zoom, fraction=0.03, pad=0.04)
         cbar.set_label('NSE', fontsize=11)
 
-    ax.set_xlabel('Longitude', fontsize=11)
-    ax.set_ylabel('Latitude', fontsize=11)
-    ax.set_title(
-        title or 'CAMELS Subset — Watershed Boundaries (Southern Appalachians)',
-        fontsize=12,
+    fig.suptitle(
+        'CAMELS Subset — 10 Basins, Southern Appalachians',
+        fontsize=13, fontweight='bold', y=1.01,
     )
-    ax.set_facecolor("#eef2f7")
-    ax.grid(alpha=0.35)
-
     plt.tight_layout()
     plt.show()
 

@@ -3,7 +3,8 @@ name = "foundations-of-ml"
 description = "CIROH DevCon 2026 Foundations of Machine Learning workshop"
 version = "0.1.0"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
     { name = "Leo Lonzarich", email = "lglonzaric@gmail.com" },
     { name = "Savalan Neisary", email = "savalan.neisary@gmail.com" },
@@ -31,3 +32,6 @@ dependencies = [
     "torch",
     "tqdm",
 ]
+
+[tool.setuptools.packages.find]
+include = []

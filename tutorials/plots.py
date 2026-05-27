@@ -1,4 +1,4 @@
-"""Plotting helpers.
+"""Plotting functions.
 
 CIROH Developer's Conference 2026 | Foundations of Machine Learning.
 """

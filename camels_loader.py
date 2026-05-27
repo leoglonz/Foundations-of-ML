@@ -1,14 +1,14 @@
 """
-Lightweight loader for the 10-basin CAMELS daymetv2 subset pickle.
+Lightweight loader for CAMELS Daymet V2 data.
 
-Pickle structure (matches camels_daymetv2 format):
+Pickle structure:
     tuple(
-        forcings   : np.ndarray  (basins, time, n_forcings)
-        target     : np.ndarray  (basins, time, 1)          -- streamflow ft³/s
-        attributes : np.ndarray  (basins, n_attrs)
+        forcings: np.ndarray  (basins, time, n_forcings)
+        target: np.ndarray  (basins, time, 1) -- streamflow ft3/s
+        attributes: np.ndarray  (basins, n_attrs)
     )
 
-Time axis spans 1980-10-01 to 2014-09-30 (12,418 daily steps).
+Time axis spans 1980-10-01 to 2014-09-30 == 12,418 days.
 """
 
 import pickle
@@ -19,21 +19,21 @@ import pandas as pd
 from numpy.typing import NDArray
 
 
-FORCING_NAMES = ["prcp", "tmean", "pet", "dayl", "srad", "vp"]
+FORCING_NAMES = ['prcp', 'tmean', 'pet', 'dayl', 'srad', 'vp']
 
 ATTRIBUTE_NAMES = [
-    "p_mean", "pet_mean", "p_seasonality", "frac_snow", "aridity",
-    "high_prec_freq", "high_prec_dur", "low_prec_freq", "low_prec_dur",
-    "elev_mean", "slope_mean", "area_gages2", "frac_forest", "lai_max",
-    "lai_diff", "gvf_max", "gvf_diff", "dom_land_cover_frac", "dom_land_cover",
-    "root_depth_50", "soil_depth_pelletier", "soil_depth_statsgo",
-    "soil_porosity", "soil_conductivity", "max_water_content", "sand_frac",
-    "silt_frac", "clay_frac", "geol_1st_class", "glim_1st_class_frac",
-    "geol_2nd_class", "glim_2nd_class_frac", "carbonate_rocks_frac",
-    "geol_porosity", "geol_permeability",
+    'p_mean', 'pet_mean', 'p_seasonality', 'frac_snow', 'aridity',
+    'high_prec_freq', 'high_prec_dur', 'low_prec_freq', 'low_prec_dur',
+    'elev_mean', 'slope_mean', 'area_gages2', 'frac_forest', 'lai_max',
+    'lai_diff', 'gvf_max', 'gvf_diff', 'dom_land_cover_frac', 'dom_land_cover',
+    'root_depth_50', 'soil_depth_pelletier', 'soil_depth_statsgo',
+    'soil_porosity', 'soil_conductivity', 'max_water_content', 'sand_frac',
+    'silt_frac', 'clay_frac', 'geol_1st_class', 'glim_1st_class_frac',
+    'geol_2nd_class', 'glim_2nd_class_frac', 'carbonate_rocks_frac',
+    'geol_porosity', 'geol_permeability',
 ]
 
-_ALL_DATES = pd.date_range("1980-10-01", "2014-09-30", freq="D")
+_ALL_DATES = pd.date_range('1980-10-01', '2014-09-30', freq='D')
 
 
 class CamelsSubsetLoader:
@@ -42,11 +42,11 @@ class CamelsSubsetLoader:
     Parameters
     ----------
     pickle_path
-        Path to the subset pickle file.
+        Path to the subset file.
     gage_id_path
-        Path to the corresponding gage_id .npy file.
+        Path to the corresponding gage ID file.
     start_date, end_date
-        Optional date strings (``"YYYY-MM-DD"``) to slice the time axis.
+        Optional date strings ("YYYY-MM-DD") to slice the time axis.
     """
 
     def __init__(
@@ -70,7 +70,7 @@ class CamelsSubsetLoader:
 
         self.dates = _ALL_DATES[idx_start:idx_end]
 
-        # Slice time axis and transpose to (time, basins, vars) to match HydroLoader
+        # Slice time axis and transpose to (time, basins, vars)
         self.forcings: NDArray = np.transpose(
             forcings_raw[:, idx_start:idx_end], (1, 0, 2)
         ).astype(np.float32)
@@ -78,18 +78,38 @@ class CamelsSubsetLoader:
             target_raw[:, idx_start:idx_end], (1, 0, 2)
         ).astype(np.float32)
         self.attributes: NDArray = attributes_raw.astype(np.float32)
-
-    # ------------------------------------------------------------------
-    # Named access helpers
-    # ------------------------------------------------------------------
+    
+    # Helper methods to access data by name rather than index.
 
     def get_forcing(self, name: str) -> NDArray:
-        """Return a single forcing variable, shape ``(time, basins)``."""
+        """Return a single forcing variable across all basins.
+
+        Parameters
+        ----------
+        name
+            Name of the forcing variable (e.g. prcp, tmean).
+
+        Returns
+        -------
+        NDArray
+            Array of shape (time, basins).
+        """
         idx = FORCING_NAMES.index(name)
         return self.forcings[:, :, idx]
 
     def get_attribute(self, name: str) -> NDArray:
-        """Return a single basin attribute, shape ``(basins,)``."""
+        """Return a single basin attribute across all basins.
+
+        Parameters
+        ----------
+        name
+            Name of the attribute (e.g. area_gages2).
+
+        Returns
+        -------
+        NDArray
+            Array of shape (basins,).
+        """
         idx = ATTRIBUTE_NAMES.index(name)
         return self.attributes[:, idx]
 
@@ -98,17 +118,16 @@ class CamelsSubsetLoader:
 
         Returns
         -------
-        dict with keys:
-            - each forcing name  → shape (time, basins)
-            - each attribute name → shape (basins,)
-            - ``"streamflow"``   → shape (time, basins)  [ft³/s]
-            - ``"dates"``        → pd.DatetimeIndex
-            - ``"gage_ids"``     → 1-D int array
+        dict
+            Keys include each forcing name (shape (time, basins)), each
+            attribute name (shape (basins,)), streamflow
+            (shape (time, basins), ft3/s), "dates"
+            (pd.DatetimeIndex), and gage_ids (1D int array).
         """
-        d: dict = {
-            "dates": self.dates,
-            "gage_ids": self.gage_ids,
-            "streamflow": self.target[:, :, 0],
+        d = {
+            'dates': self.dates,
+            'gage_ids': self.gage_ids,
+            'streamflow': self.target[:, :, 0],
         }
         for i, name in enumerate(FORCING_NAMES):
             d[name] = self.forcings[:, :, i]
@@ -116,9 +135,7 @@ class CamelsSubsetLoader:
             d[name] = self.attributes[:, i]
         return d
 
-    # ------------------------------------------------------------------
-    # Convenience
-    # ------------------------------------------------------------------
+    # For convenience
 
     @property
     def n_basins(self) -> int:
@@ -137,25 +154,26 @@ class CamelsSubsetLoader:
         )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
+    # Quick test to verify loading and named access.
     import os
 
     base = os.path.dirname(__file__)
     loader = CamelsSubsetLoader(
-        pickle_path=os.path.join(base, "camels_daymetv2_10basin_subset"),
-        gage_id_path=os.path.join(base, "gage_id_10basin_subset.npy"),
-        start_date="1999-10-01",
-        end_date="2008-09-30",
+        pickle_path=os.path.join(base, 'data', 'camels_daymetv2_subset'),
+        gage_id_path=os.path.join(base, 'data', 'gage_id_subset.npy'),
+        start_date='1999-10-01',
+        end_date='2008-09-30',
     )
 
     print(loader)
-    print(f"Gage IDs : {loader.gage_ids}")
-    print(f"Forcings : {loader.forcings.shape}  (time, basins, vars)")
-    print(f"Target   : {loader.target.shape}    (time, basins, 1)")
-    print(f"Attrs    : {loader.attributes.shape} (basins, attrs)")
+    print(f"Gage IDs: {loader.gage_ids}")
+    print(f"Forcings: {loader.forcings.shape} (time, basins, vars)")
+    print(f"Target: {loader.target.shape} (time, basins, 1)")
+    print(f"Attrs: {loader.attributes.shape} (basins, attrs)")
 
     prcp = loader.get_forcing("prcp")
-    print(f"\nprcp mean per basin : {prcp.mean(axis=0).round(3)}")
+    print(f"\nprcp mean per basin: {prcp.mean(axis=0).round(3)}")
 
     area = loader.get_attribute("area_gages2")
-    print(f"basin area (km²)    : {area.round(1)}")
+    print(f"basin area (km2): {area.round(1)}")
